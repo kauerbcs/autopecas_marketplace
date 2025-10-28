@@ -1,0 +1,101 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: autopecas_db
+    environment:
+      POSTGRES_DB: autopecas_db
+      POSTGRES_USER: autopecas_user
+      POSTGRES_PASSWORD: autopecas_pass
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U autopecas_user -d autopecas_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: autopecas_redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build: .
+    container_name: autopecas_web
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    environment:
+      DJANGO_DEBUG: "True"
+      DJANGO_SECRET_KEY: django-insecure-placeholder
+      DB_NAME: autopecas_db
+      DB_USER: autopecas_user
+      DB_PASSWORD: autopecas_pass
+      DB_HOST: db
+      DB_PORT: 5432
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery_worker:
+    build: .
+    container_name: autopecas_celery_worker
+    command: celery -A autopecas_marketplace worker --loglevel=info
+    volumes:
+      - .:/app
+    environment:
+      DJANGO_DEBUG: "True"
+      DJANGO_SECRET_KEY: django-insecure-placeholder
+      DB_NAME: autopecas_db
+      DB_USER: autopecas_user
+      DB_PASSWORD: autopecas_pass
+      DB_HOST: db
+      DB_PORT: 5432
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery_beat:
+    build: .
+    container_name: autopecas_celery_beat
+    command: celery -A autopecas_marketplace beat --loglevel=info
+    volumes:
+      - .:/app
+    environment:
+      DJANGO_DEBUG: "True"
+      DJANGO_SECRET_KEY: django-insecure-placeholder
+      DB_NAME: autopecas_db
+      DB_USER: autopecas_user
+      DB_PASSWORD: autopecas_pass
+      DB_HOST: db
+      DB_PORT: 5432
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
